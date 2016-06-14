@@ -1,30 +1,71 @@
-language: java
+addons: {}
+after_failure:
+- cd $DFB_PROJECT_DIR
+- artifacts upload --key $AWS_ACCESS_KEY_ID --secret $AWS_SECRET_ACCESS_KEY --bucket
+  $DFB_AWS_BUCKET --target-paths $DFB_AWS_BUILD_PATH $(find . -name '*.log')
+after_success:
+- cd $DFB_PROJECT_DIR
+- export JAVA_TOOL_OPTIONS=-javaagent:$DFB_PROJECT_DIR/jacoco-agent-jdk8.jar=destfile=$DFB_PROJECT_DIR/jacoco.exec
+- if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then travis_wait
+  60 mvn test -Djacoco.skip=true -Dcobertura.skip=true -Dmaven.clover.skip=true -Dmaven.javadoc.skip=true
+  -Drat.skip=true -Drat.ignoreErrors=true clean deploy --quiet --settings settings.xml;
+  fi
+- ./df-build.sh
+- cd ${DFB_PROJECT_DIR}
+- env > env.file
+- echo " ----- Debug info for jacoco and env data -----"
+- 'echo "Current dir is: $PWD"'
+- 'echo "Env.file: "'
+- find . -name 'env.file'
+- 'echo "Jacoco cov: "'
+- find . -name '*.exec'
+- echo " ----------------------------------------------"
+- artifacts upload --key $AWS_ACCESS_KEY_ID --secret $AWS_SECRET_ACCESS_KEY --bucket
+  $DFB_AWS_BUCKET --target-paths $DFB_AWS_BUILD_PATH $(git ls-files -oi -x *.exec)
+- artifacts upload --key $AWS_ACCESS_KEY_ID --secret $AWS_SECRET_ACCESS_KEY --bucket
+  $DFB_AWS_BUCKET --target-paths $DFB_AWS_BUILD_PATH ${DFB_PROJECT_DIR}/env.file
+before_install:
+- cat ~/.m2/settings.xml
+- rm  ~/.m2/settings.xml
+- sed -i.bak -e 's|https://nexus.codehaus.org/snapshots/|https://oss.sonatype.org/content/repositories/codehaus-snapshots/|g'
+  $HOME/.m2/settings.xml
+- wget -O beforebuild.sh $DFB_AGENTS_URL/beforebuild.sh
+- chmod a+x beforebuild.sh
+- ./beforebuild.sh
+- curl -sL https://raw.githubusercontent.com/travis-ci/artifacts/master/install |
+  bash
+cache:
+  directories:
+  - $HOME/.m2
+env:
+  global:
+  - secure: OtD0z3y4/OjSzg8irVD8v/u0TElcw8AiCCXb7a0UQEnTpGxcf5DOdkvHv0hF4xjHKFtlMMHxevW+a4C4NuFR8it8ZJ/i2m24reB28JicDcRQY9nwV/BR/T08CRG9KDz5EuTHgfPJDF0y+5MiVNwJVhHFviBWKuXyIuYouJ5IHgc=
+  - secure: tgTVycNLwYDM3U0EVK1TkffylQHfZihvSDC9QoZEo+wz9aBBLoAtUJP7DWltRQFOkfTeGltGHEfGM2/qkIG6Wz+hNFG/fveHqyI01JWXc64d7yBm7agaCP5uTtt2wjaZ7ZK5Mps5QoufblYu+j9gb2v31t9IdsJ9PUs0+wgE/WU=
+  - DFB_PROJECT_DIR=$(pwd)
+  - TMP_PROJECT_PARENT_DIR=$(dirname $DFB_PROJECT_DIR)
+  - DFB_BUILD_ID=$TRAVIS_BUILD_ID
+  - DFB_PRODUCT_NAME=$(basename $DFB_PROJECT_DIR)
+  - DFB_OWNER_NAME=$(basename $TMP_PROJECT_PARENT_DIR)
+  - DFB_PRODUCT_KEY=${DFB_OWNER_NAME}_${DFB_PRODUCT_NAME}
+  - DFB_AWS_BUCKET=aline-external-ci-artifacts
+  - DFB_AGENTS_URL=https://s3.amazonaws.com/${DFB_AWS_BUCKET}/agents
+  - DFB_PACKAGING_URL=s3://${DFB_AWS_BUCKET}/artifacts/travis/
+  - DFB_AWS_BUILD_PATH=/artifacts/travis/${DFB_PRODUCT_KEY}/${DFB_BUILD_ID}/output/
+  - AWS_ACCESS_KEY_ID=AKIAIIU2LBOCCKXAIFZQ
+  - AWS_SECRET_ACCESS_KEY=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
+  - DFB_JTO=-javaagent:${DFB_PROJECT_DIR}/dfbuild-agent.jar=PACKAGING_BASE_URI=$DFB_PACKAGING_URL,PRODUCT_KEY=$DFB_PRODUCT_KEY/,BUILD_KEY=$DFB_BUILD_ID/,MODULES_KEY=modules/,START_TIME=0,BUILD_BASE_DIR=$DFB_PROJECT_DIR
+install:
+- mvn install -DskipTests=true
 jdk:
 - oraclejdk7
-
-before_install:
-  - cat ~/.m2/settings.xml
-  - rm  ~/.m2/settings.xml
-
-install:
-  - mvn install -DskipTests=true
-
+language: java
+notifications: {}
 script:
-    - mvn test; export MAVEN_RESULT=$?
-    - if [ "$MAVEN_RESULT" -ne 0 ]; then exit 1; fi
-    - if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then mvn clean deploy --quiet --settings settings.xml; fi
-
-after_success:
-  - mvn clean test jacoco:report coveralls:report
-  
- 
-notifications:
-  email:
-    - richard.vannieuwenhoven@adesso.at
-    - elonen@iki.fi
-    
-env:
- global:
-  - secure: "OtD0z3y4/OjSzg8irVD8v/u0TElcw8AiCCXb7a0UQEnTpGxcf5DOdkvHv0hF4xjHKFtlMMHxevW+a4C4NuFR8it8ZJ/i2m24reB28JicDcRQY9nwV/BR/T08CRG9KDz5EuTHgfPJDF0y+5MiVNwJVhHFviBWKuXyIuYouJ5IHgc="
-  - secure: "tgTVycNLwYDM3U0EVK1TkffylQHfZihvSDC9QoZEo+wz9aBBLoAtUJP7DWltRQFOkfTeGltGHEfGM2/qkIG6Wz+hNFG/fveHqyI01JWXc64d7yBm7agaCP5uTtt2wjaZ7ZK5Mps5QoufblYu+j9gb2v31t9IdsJ9PUs0+wgE/WU="
-  
+- export JAVA_TOOL_OPTIONS=$DFB_JTO
+- travis_wait 30 mvn -DskipTests=true -Dmaven.javadoc.skip=true -Drat.skip=true -Drat.ignoreErrors=true
+  test; export MAVEN_RESULT=$?
+- if [ "$MAVEN_RESULT" -ne 0 ]; then exit 1; fi
+- if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then travis_wait
+  30 mvn -DskipTests=true -Dmaven.javadoc.skip=true -Drat.skip=true -Drat.ignoreErrors=true
+  clean deploy --quiet --settings settings.xml; fi
+# Modified by IntegrationTestInstrumentation at 2016-06-14 21:09:08.604278
